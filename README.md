@@ -41,11 +41,8 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable coding-sparrow.cloudflare-warp
 ```
 
-Move it around the bar with, for example:
-
-```bash
-omarchy bar move coding-sparrow.cloudflare-warp --after omarchy.tailscale
-```
+When enabled, the icon is added to the right section of the bar. To put it
+somewhere else, drag it to any free spot, or use `omarchy bar move`.
 
 ## Notes
 

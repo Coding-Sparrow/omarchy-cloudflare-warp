@@ -52,6 +52,34 @@ omarchy plugin enable coding-sparrow.cloudflare-warp
 When enabled, the icon is added to the right section of the bar. To put it
 somewhere else, drag it to any free spot, or use `omarchy bar move`.
 
+## Remove
+
+```bash
+omarchy plugin disable coding-sparrow.cloudflare-warp   # hide from the bar, keep the files
+omarchy plugin remove coding-sparrow.cloudflare-warp    # delete the plugin checkout
+```
+
+Removing the plugin leaves Cloudflare WARP itself installed. To remove that too:
+
+```bash
+warp-cli --accept-tos registration delete
+sudo systemctl disable --now warp-svc
+omarchy pkg drop cloudflare-warp-bin
+```
+
+## Requirements
+
+- Omarchy with the Omarchy shell (Quickshell bar), 4.x
+- [`cloudflare-warp-bin`](https://aur.archlinux.org/packages/cloudflare-warp-bin)
+  (AUR, proprietary Cloudflare client providing `warp-cli` and `warp-svc`).
+  The plugin offers to install it for you through `omarchy-pkg-aur-add`, and
+  enabling `warp-svc` asks for your sudo password in a visible terminal.
+  Nothing is installed or changed without you clicking **Install**.
+- A browser, for Zero Trust team login
+
+The plugin writes no configuration outside its own entry in
+`~/.config/omarchy/shell.json`.
+
 ## Notes
 
 - The official `warp-taskbar` tray app isn't needed; you can disable it with

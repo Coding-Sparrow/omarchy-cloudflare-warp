@@ -20,7 +20,7 @@ Click the 󰖂 icon in the bar to open the panel. It walks you through each step
 
 | 1. Install | 2. Register with your company |
 |---|---|
-| ![Install Cloudflare WARP](screenshots/1-install.png) | ![Register with a Zero Trust team](screenshots/2-register.png) |
+| ![Install Cloudflare WARP](screenshots/1-get-warp.png) | ![Register with a Zero Trust team](screenshots/2-register.png) |
 | **3. Connected** | **4. Disconnected** |
 | ![Connected](screenshots/3-connected.png) | ![Disconnected](screenshots/4-disconnected.png) |
 

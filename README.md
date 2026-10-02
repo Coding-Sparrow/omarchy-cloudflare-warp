@@ -22,7 +22,7 @@ Click the Cloudflare icon in the bar to open the panel:
 |---|---|
 | ![Connected](screenshots/1-connected.png) | ![Virtual networks and split tunnel](screenshots/2-networks-and-routes.png) |
 | **Sign in to a Zero Trust team** | **Install** |
-| ![Sign in](screenshots/3-sign-in.png) | ![Install](screenshots/4-install.png) |
+| ![Sign in](screenshots/3-sign-in.png) | ![Install](screenshots/4-get-warp.png) |
 
 ## Mouse and keyboard
 

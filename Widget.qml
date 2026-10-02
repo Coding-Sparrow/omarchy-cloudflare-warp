@@ -1,184 +1,202 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
 
-// Cloudflare WARP for the Omarchy bar.
-//
-// One panel walks through the whole lifecycle:
-//   not installed -> Install         (floating terminal, AUR + sudo)
-//   service off   -> Start service   (floating terminal, sudo)
-//   unregistered  -> Company / team name, or free WARP
-//   registered    -> On/off switch, account details, change team / unregister
+// Cloudflare WARP in the bar. One panel walks the whole lifecycle:
+//   not installed -> install          (floating terminal, AUR + sudo)
+//   service off   -> start service    (floating terminal, sudo)
+//   unregistered  -> Zero Trust team login in the browser, or free WARP
+//   registered    -> on/off, mode, virtual networks, local network access,
+//                    split tunnel routes, change team / unregister
 Panel {
   id: root
   moduleName: "coding-sparrow.cloudflare-warp"
   ipcTarget: "coding-sparrow.cloudflare-warp"
+  manageIpc: false
 
-  readonly property string script: String(Qt.resolvedUrl("scripts/warp-setup")).replace(/^file:\/\//, "")
-
-  // ---- state reported by `warp-setup state`
-  property bool loaded: false
-  property bool installed: false
-  property bool serviceUp: false
-  property bool registered: false
-  property string account: ""
-  property string organization: ""
-  property string vpnStatus: ""
-  property string network: ""
-  property string reason: ""
-
-  // ---- ui state
-  property bool busy: false
-  property bool desired: false
-  property bool confirmUnregister: false
+  property string cursorKey: ""
+  property bool cursorActive: false
   property bool changingTeam: false
-  property string lastError: ""
+  property bool confirmUnregister: false
 
-  readonly property bool connected: vpnStatus.toLowerCase() === "connected"
-  readonly property bool connecting: vpnStatus.toLowerCase().indexOf("connecting") !== -1
-  readonly property bool switchOn: busy ? desired : connected
-  // "loading" | "install" | "service" | "register" | "ready"
-  readonly property string stage: !loaded ? "loading"
-    : !installed ? "install"
-    : !serviceUp ? "service"
-    : (!registered || changingTeam) ? "register"
-    : "ready"
-
+  readonly property string glyph: ""
   readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
-  readonly property string glyph: "󰖂"
+  readonly property color barIconColor: warp.active ? barForeground : Qt.darker(barForeground, 1.55)
+  readonly property color hoverFill: bar ? Style.hoverFillFor(bar.foreground, Color.accent) : "transparent"
+  readonly property color selectedFill: bar ? Style.selectedFillFor(bar.foreground, Color.accent) : "transparent"
 
-  readonly property string statusText: {
-    if (stage === "loading") return "Checking…"
-    if (stage === "install") return "Not installed"
-    if (stage === "service") return "Service stopped"
-    if (stage === "register") return changingTeam ? "Change team" : "Not registered"
-    if (busy) return desired ? "Connecting…" : "Disconnecting…"
-    if (connected) return "Connected"
-    if (connecting) return "Connecting…"
-    return "Disconnected"
+  readonly property var warpState: warp.warpState
+  readonly property string panelStage: warp.stage === "ready" && (changingTeam || warp.registering) ? "register" : warp.stage
+  readonly property var navKeys: Model.navKeys(panelStage, warpState, {
+    registering: warp.registering,
+    hasLoginUrl: warp.loginUrl !== "",
+    changingTeam: changingTeam
+  })
+  readonly property string heroMeta: {
+    var parts = [warp.statusText]
+    if (warp.stage === "ready" && warp.edgeSummary !== "") parts.push(warp.edgeSummary)
+    return parts.join(" · ")
+  }
+  readonly property string toggleHint: warpState.switchLocked ? "Your organization keeps WARP on" : (warp.active ? "Turn WARP off" : "Turn WARP on")
+
+  function hasCursor(key) {
+    return cursorActive && cursorKey === key
+  }
+
+  function setCursor(key) {
+    cursorActive = true
+    cursorKey = key
+  }
+
+  function ensureCursor() {
+    if (navKeys.indexOf(cursorKey) === -1) cursorKey = navKeys.length > 0 ? navKeys[0] : ""
+  }
+
+  function moveCursor(dy) {
+    if (!cursorActive) {
+      cursorActive = true
+      ensureCursor()
+    } else {
+      cursorKey = Model.moveKey(navKeys, cursorKey, dy)
+    }
+    if (cursorKey === "team") teamField.forceActiveFocus()
+    else keyCatcher.forceActiveFocus()
+    scrollCursorIntoView()
+  }
+
+  function activate(key) {
+    if (key === "toggle") warp.toggle()
+    else if (key === "install") { warp.install(); root.close() }
+    else if (key === "start-service") { warp.startService(); root.close() }
+    else if (key === "team") teamField.forceActiveFocus()
+    else if (key === "register-team") registerTeam()
+    else if (key === "register-free") { changingTeam = false; warp.register("") }
+    else if (key === "open-login") warp.openLoginUrl()
+    else if (key === "cancel") cancelRegister()
+    else if (key === "proxy") warp.copyToClipboard(warp.proxyAddress, "proxy address")
+    else if (key === "local-network") warp.toggleLocalNetwork()
+    else if (key === "change-team") startChangingTeam()
+    else if (key === "unregister") unregister()
+    else if (key.indexOf("mode:") === 0) warp.setMode(key.slice(5))
+    else if (key.indexOf("vnet:") === 0) warp.setVnet(key.slice(5))
+    else if (key.indexOf("route:") === 0) {
+      var route = warpState.splitTunnelRoutes[parseInt(key.slice(6), 10)]
+      if (route) warp.copyToClipboard(route.value)
+    }
+  }
+
+  function registerTeam() {
+    var team = warp.cleanTeamName(teamField.text)
+    if (team === "") {
+      warp.lastError = "Enter your organization's Zero Trust team name."
+      teamField.forceActiveFocus()
+      return
+    }
+    changingTeam = false
+    warp.register(team)
+  }
+
+  function cancelRegister() {
+    changingTeam = false
+    warp.cancelRegistration()
+    keyCatcher.forceActiveFocus()
+  }
+
+  function startChangingTeam() {
+    changingTeam = true
+    teamField.text = warpState.zeroTrust ? warpState.organization : ""
+    setCursor("team")
+    Qt.callLater(function() { teamField.forceActiveFocus(); teamField.selectAll() })
+  }
+
+  function unregister() {
+    if (!confirmUnregister) {
+      confirmUnregister = true
+      confirmTimer.restart()
+      return
+    }
+    confirmUnregister = false
+    warp.unregister()
+  }
+
+  function scrollCursorIntoView() {
+    Qt.callLater(function() {
+      var item = rowFor(column, cursorKey)
+      if (!item || !panelFlick) return
+      var margin = Style.space(6)
+      var top = item.mapToItem(panelFlick.contentItem, 0, 0).y
+      var bottom = top + item.height
+      var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
+      if (top < panelFlick.contentY + margin) panelFlick.contentY = Math.max(0, top - margin)
+      else if (bottom > panelFlick.contentY + panelFlick.height - margin) panelFlick.contentY = Math.min(maxY, bottom + margin - panelFlick.height)
+    })
+  }
+
+  function rowFor(item, key) {
+    if (!item) return null
+    if (item.rowKey === key && item.visible) return item
+    var children = item.children || []
+    for (var i = 0; i < children.length; i++) {
+      var found = rowFor(children[i], key)
+      if (found) return found
+    }
+    return null
   }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // ------------------------------------------------------------ actions
-
-  function refresh() {
-    if (!stateProc.running) stateProc.running = true
-  }
-
-  function runInTerminal(args) {
-    var quoted = args.map(function(a) { return "'" + String(a).replace(/'/g, "'\\''") + "'" }).join(" ")
-    if (bar) bar.run("omarchy-launch-floating-terminal-with-presentation " + quoted)
-    close()
-  }
-
-  function install() { runInTerminal([script, "install"]) }
-  function startService() { runInTerminal([script, "start-service"]) }
-
-  function cleanTeam(value) {
-    return String(value || "").trim().toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .replace(/\.cloudflareaccess\.com.*$/, "")
-      .replace(/[^a-z0-9-]/g, "")
-  }
-
-  function register(team) {
-    var t = cleanTeam(team)
-    if (!t) { lastError = "Enter your company's Zero Trust team name."; return }
-    lastError = ""
-    changingTeam = false
-    runInTerminal([script, "register", t])
-  }
-
-  function registerFree() {
-    lastError = ""
-    changingTeam = false
-    runInTerminal([script, "register", ""])
-  }
-
-  function unregister() {
-    if (!confirmUnregister) { confirmUnregister = true; confirmTimer.restart(); return }
-    confirmUnregister = false
-    quickProc.command = [script, "unregister"]
-    quickProc.running = true
-  }
-
-  function toggleVpn() {
-    if (stage !== "ready" || busy) return
-    desired = !connected
-    busy = true
-    quickProc.command = [script, desired ? "connect" : "disconnect"]
-    quickProc.running = true
-  }
-
   onOpenedChanged: {
     if (opened) {
-      lastError = ""
-      refresh()
-      Qt.callLater(function() {
-        if (root.stage === "register") teamField.forceActiveFocus()
-        else keyCatcher.forceActiveFocus()
-      })
+      cursorActive = false
+      warp.lastError = ""
+      if (panelFlick) panelFlick.contentY = 0
+      warp.refresh()
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+      teamFocusTimer.restart()
     } else {
-      confirmUnregister = false
       changingTeam = false
+      confirmUnregister = false
     }
   }
+  onNavKeysChanged: if (cursorActive) ensureCursor()
 
-  // ------------------------------------------------------------ processes
-
-  Process {
-    id: stateProc
-    command: [root.script, "state"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var kv = ({})
-        String(text).split("\n").forEach(function(line) {
-          var i = line.indexOf("=")
-          if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1)
-        })
-        root.installed = kv.installed === "true"
-        root.serviceUp = kv.service === "true"
-        root.registered = kv.registered === "true"
-        root.account = kv.account || ""
-        root.organization = kv.organization || ""
-        root.vpnStatus = kv.status || ""
-        root.network = kv.network || ""
-        root.reason = kv.reason || ""
-        root.loaded = true
-        if (root.busy && root.connected === root.desired) root.busy = false
-      }
-    }
+  Service {
+    id: warp
+    settings: root.settings
   }
 
-  Process {
-    id: quickProc
-    stderr: StdioCollector {
-      onStreamFinished: {
-        var t = String(text).trim()
-        if (t !== "") root.lastError = t.split("\n").pop()
-      }
-    }
-    onExited: settleTimer.restart()
+  IpcHandler {
+    target: root.ipcTarget
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.toggle() }
+    function refresh(): string { warp.refresh(); return "ok" }
+    function connect(): string { warp.connect(); return "ok" }
+    function disconnect(): string { warp.disconnect(); return "ok" }
+    function toggleWarp(): string { warp.toggle(); return "ok" }
+    function status(): string { return warp.statusText }
   }
 
+  // The panel window takes keyboard focus a moment after it opens and hands
+  // it to the key catcher, so the team field is focused once that settles.
   Timer {
-    id: settleTimer
-    interval: 1000
-    repeat: true
-    property int tries: 0
-    onRunningChanged: if (running) tries = 0
+    id: teamFocusTimer
+    interval: 150
     onTriggered: {
-      root.refresh()
-      tries++
-      if (!root.busy || tries > 15) { root.busy = false; stop() }
+      if (!root.opened || root.panelStage !== "register" || warp.registering) return
+      root.setCursor("team")
+      teamField.forceActiveFocus()
     }
   }
 
@@ -188,30 +206,19 @@ Panel {
     onTriggered: root.confirmUnregister = false
   }
 
-  Timer {
-    interval: root.opened || root.stage !== "ready" ? 2000 : 5000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.refresh()
-  }
-
-  // ------------------------------------------------------------ bar button
-
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: root.glyph
-    dimmed: !root.connected
-    tooltipText: root.opened ? "" : "WARP: " + root.statusText
-    onPressed: function(b) {
-      if (b === Qt.MiddleButton) root.toggleVpn()
+    foreground: root.barIconColor
+    tooltipText: root.opened ? "" : "Cloudflare WARP: " + warp.statusText
+    onPressed: function(buttonCode) {
+      if (buttonCode === Qt.RightButton) warp.toggle()
+      else if (buttonCode === Qt.MiddleButton) warp.refresh()
       else root.toggle()
     }
   }
-
-  // ------------------------------------------------------------ panel
 
   KeyboardPanel {
     id: panel
@@ -219,215 +226,321 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.stage === "register" ? teamField : keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(460))
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(380))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(560))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onActivateRequested: root.toggleVpn()
+      onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveCursor(dy) }
+      onActivateRequested: {
+        if (root.cursorActive) root.activate(root.cursorKey)
+        else root.activate(root.panelStage === "ready" ? "toggle" : (root.navKeys[0] || ""))
+      }
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
-        if (t === " " || t === "t" || t === "T") root.toggleVpn()
-        else if (t === "r" || t === "R") root.refresh()
+        var key = t.toLowerCase()
+        if (key === "t") warp.toggle()
+        else if (key === "r") warp.refresh()
+        else if (key === "c" && root.cursorKey.indexOf("route:") === 0) root.activate(root.cursorKey)
+        else if (key === "p" && warp.warpState.mode === "proxy") root.activate("proxy")
       }
 
-      Column {
-        id: column
-        width: parent.width
-        spacing: Style.space(12)
+      Flickable {
+        id: panelFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        interactive: contentHeight > height
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-        PanelHero {
-          id: hero
-          width: parent.width
-          title: "Cloudflare WARP"
-          meta: root.statusText
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          iconOpacity: root.connected ? 1.0 : 0.5
-          iconComponent: Component {
-            Text {
-              text: root.glyph
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.display
-            }
-          }
-          trailingControl: Component {
-            ToggleSwitch {
-              id: vpnSwitch
-              visible: root.stage === "ready"
-              checked: root.switchOn
-              busy: root.busy
-              foreground: hero.foreground
-              onToggled: root.toggleVpn()
+        Column {
+          id: column
+          width: panelFlick.width
+          spacing: Style.space(12)
 
-              PanelToolTip {
-                visible: vpnSwitch.containsMouse
-                text: root.switchOn ? "Turn VPN off" : "Turn VPN on"
-                fontFamily: hero.fontFamily
+          Item {
+            id: header
+            width: parent.width
+            implicitHeight: hero.implicitHeight
+            // The hero's trailingControl resolves `root` to PanelHero, so it
+            // reaches panel state through `header`.
+            readonly property bool ringVisible: root.hasCursor("toggle")
+            function focusToggle() { root.setCursor("toggle") }
+
+            PanelHero {
+              id: hero
+              width: parent.width
+              title: warp.warpState.zeroTrust && warp.warpState.organization !== "" ? warp.warpState.organization : "Cloudflare WARP"
+              meta: root.heroMeta
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              iconOpacity: warp.active ? 1.0 : 0.5
+              iconComponent: Component {
+                Text {
+                  text: root.glyph
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.display
+                }
+              }
+              trailingControl: Component {
+                ToggleSwitch {
+                  id: powerSwitch
+                  visible: warp.stage === "ready" && root.panelStage === "ready"
+                  checked: warp.active
+                  busy: warp.busy
+                  interactive: !warp.warpState.switchLocked
+                  hasCursor: header.ringVisible
+                  foreground: hero.foreground
+                  onHovered: function(on) { if (on) header.focusToggle() }
+                  onToggled: warp.toggle()
+
+                  PanelToolTip {
+                    visible: powerSwitch.containsMouse
+                    text: root.toggleHint
+                    fontFamily: hero.fontFamily
+                  }
+                }
               }
             }
           }
-        }
 
-        // ---- not installed
-        Column {
-          visible: root.stage === "install"
-          width: parent.width
-          spacing: Style.space(10)
-
-          Hint { text: "The Cloudflare WARP client isn't installed. It will be installed from the AUR (cloudflare-warp-bin) and its background service enabled. You'll be asked for your password in a terminal." }
-          Button {
+          Text {
+            visible: text !== ""
             width: parent.width
-            iconText: "󰏗"
-            text: "Install Cloudflare WARP"
-            bordered: true
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.install()
-          }
-        }
-
-        // ---- service stopped
-        Column {
-          visible: root.stage === "service"
-          width: parent.width
-          spacing: Style.space(10)
-
-          Hint { text: "The WARP background service (warp-svc) isn't running." }
-          Button {
-            width: parent.width
-            iconText: "󰐊"
-            text: "Start WARP service"
-            bordered: true
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.startService()
-          }
-        }
-
-        // ---- registration
-        Column {
-          visible: root.stage === "register"
-          width: parent.width
-          spacing: Style.space(10)
-
-          PanelSectionHeader {
-            text: "COMPANY / TEAM NAME"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-          }
-
-          Hint { text: "Your company's Cloudflare Zero Trust team name, the part before .cloudflareaccess.com. A browser window opens for your company login." }
-
-          TextField {
-            id: teamField
-            width: parent.width
-            placeholderText: "e.g. acme"
+            textFormat: Text.PlainText
+            text: warp.lastError !== "" ? warp.lastError : warp.actionStatus
+            color: warp.lastError !== "" ? root.urgent : root.dim
             font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            foreground: root.foreground
-            onAccepted: root.register(text)
-            Keys.onEscapePressed: root.close()
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
           }
 
-          Button {
+          // ---------------------------------------------------- not installed
+          Column {
+            visible: root.panelStage === "install"
             width: parent.width
-            iconText: "󰌋"
-            text: "Register with company"
-            bordered: true
-            enabled: root.cleanTeam(teamField.text) !== ""
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.register(teamField.text)
+            spacing: Style.space(8)
+
+            Hint { text: "The Cloudflare WARP client isn't installed. Installing it adds cloudflare-warp-bin from the AUR and enables its background service; a terminal opens to ask for your password." }
+            ActionRow { rowKey: "install"; icon: "󰏔"; label: "Install Cloudflare WARP" }
           }
 
-          Button {
+          // ---------------------------------------------------- service off
+          Column {
+            visible: root.panelStage === "service"
             width: parent.width
-            iconText: "󰖟"
-            text: "Use free WARP instead (no company)"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.registerFree()
+            spacing: Style.space(8)
+
+            Hint { text: "The WARP background service (warp-svc) isn't running. Starting it opens a terminal to ask for your password." }
+            ActionRow { rowKey: "start-service"; icon: "󰐊"; label: "Start the WARP service" }
           }
 
-          Button {
-            visible: root.changingTeam
+          // ---------------------------------------------------- registration
+          Column {
+            visible: root.panelStage === "register"
             width: parent.width
-            text: "Cancel"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.changingTeam = false
-          }
-        }
+            spacing: Style.space(8)
 
-        // ---- registered
-        Column {
-          visible: root.stage === "ready"
-          width: parent.width
-          spacing: Style.spacing.labelGap
+            PanelSectionHeader {
+              text: "ZERO TRUST TEAM"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
 
-          InfoPair { label: "Account"; value: root.account || "—" }
-          InfoPair { visible: root.organization !== ""; label: "Team"; value: root.organization }
-          InfoPair { visible: root.network !== ""; label: "Network"; value: root.network }
-          InfoPair { visible: root.reason !== ""; label: "Reason"; value: root.reason }
-        }
+            Hint { text: "Your organization's team name: the part before .cloudflareaccess.com. Its login page opens in your browser." }
 
-        PanelSeparator {
-          visible: root.stage === "ready"
-          foreground: root.foreground
-        }
+            TextField {
+              id: teamField
+              width: parent.width
+              placeholderText: "e.g. acme"
+              enabled: !warp.registering
+              hasCursor: root.hasCursor("team")
+              foreground: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              onActiveFocusChanged: if (activeFocus) root.setCursor("team")
+              onAccepted: root.registerTeam()
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape) {
+                  if (root.changingTeam || warp.registering) root.cancelRegister()
+                  else root.close()
+                  event.accepted = true
+                } else if (event.key === Qt.Key_Down) {
+                  root.moveCursor(1)
+                  event.accepted = true
+                } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                  root.switchPanel(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
+                  event.accepted = true
+                }
+              }
+            }
 
-        Row {
-          visible: root.stage === "ready"
-          width: parent.width
-          spacing: Style.space(8)
-
-          Button {
-            width: (parent.width - parent.spacing) / 2
-            iconText: "󰑐"
-            text: "Change team"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: {
-              root.changingTeam = true
-              teamField.text = root.organization
-              Qt.callLater(function() { teamField.forceActiveFocus(); teamField.selectAll() })
+            ActionRow {
+              rowKey: "register-team"
+              icon: "󰍂"
+              label: warp.registering ? "Waiting for the browser login…" : "Sign in with your team"
+              enabled: !warp.registering && warp.cleanTeamName(teamField.text) !== ""
+            }
+            ActionRow {
+              rowKey: "register-free"
+              icon: "󰖟"
+              label: "Use free WARP instead"
+              detail: "No organization: 1.1.1.1 with WARP"
+              enabled: !warp.registering
+            }
+            ActionRow {
+              rowKey: "open-login"
+              visible: warp.registering && warp.loginUrl !== ""
+              icon: "󰏌"
+              label: "Open the login page again"
+            }
+            ActionRow {
+              rowKey: "cancel"
+              visible: warp.registering || root.changingTeam
+              icon: "󰅖"
+              label: "Cancel"
             }
           }
 
-          Button {
-            width: (parent.width - parent.spacing) / 2
-            iconText: "󰩺"
-            text: root.confirmUnregister ? "Click to confirm" : "Unregister"
-            active: root.confirmUnregister
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: root.unregister()
-          }
-        }
+          // ---------------------------------------------------- connected
+          Column {
+            visible: root.panelStage === "ready"
+            width: parent.width
+            spacing: Style.spacing.labelGap
 
-        Text {
-          visible: root.lastError !== ""
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.lastError
-          color: root.urgent
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-          wrapMode: Text.WordWrap
+            InfoPair { label: "Account"; value: warp.accountLabel }
+            InfoPair { label: "Mode"; value: warp.modeLabel(warp.warpState.mode) + (warp.warpState.modeLocked ? " (set by your organization)" : "") }
+            InfoPair { visible: warp.warpState.reason !== ""; label: "Network"; value: warp.warpState.reason }
+            InfoPair { visible: warp.warpState.connected && warp.warpState.protocol !== ""; label: "Protocol"; value: warp.warpState.protocol }
+            InfoPair {
+              visible: warp.warpState.connected && (warp.warpState.bytesSent > 0 || warp.warpState.bytesReceived > 0)
+              label: "Traffic"
+              value: "↑ " + warp.formatBytes(warp.warpState.bytesSent) + "   ↓ " + warp.formatBytes(warp.warpState.bytesReceived)
+            }
+          }
+
+          Section {
+            visible: root.panelStage === "ready" && !warp.warpState.modeLocked
+            title: "MODE"
+
+            Repeater {
+              model: warp.modes
+              ActionRow {
+                required property var modelData
+                readonly property bool selected: warp.warpState.mode === modelData.id
+                rowKey: "mode:" + modelData.id
+                icon: selected ? "󰐾" : "󰐽"
+                label: modelData.label
+                detail: modelData.detail
+                current: selected
+                compact: true
+              }
+            }
+          }
+
+          Section {
+            visible: root.panelStage === "ready" && warp.warpState.mode === "proxy"
+            title: "PROXY"
+
+            ActionRow {
+              rowKey: "proxy"
+              icon: "󰆏"
+              label: warp.proxyAddress
+              detail: "Point apps at this to send them through WARP"
+            }
+          }
+
+          Section {
+            visible: root.panelStage === "ready" && warp.warpState.vnets.length > 1
+            title: "VIRTUAL NETWORKS"
+
+            Repeater {
+              model: warp.warpState.vnets
+              ActionRow {
+                required property var modelData
+                rowKey: "vnet:" + modelData.id
+                icon: modelData.active ? "󰐾" : "󰐽"
+                label: modelData.name + (modelData.isDefault ? " (default)" : "")
+                detail: modelData.description
+                current: modelData.active
+                compact: true
+              }
+            }
+          }
+
+          Section {
+            visible: root.panelStage === "ready" && warp.warpState.zeroTrust
+            title: "LOCAL NETWORK"
+
+            ActionRow {
+              rowKey: "local-network"
+              icon: "󰌗"
+              label: warp.warpState.localNetworkAllowed ? "Stop local network access" : "Allow local network access"
+              detail: warp.warpState.localNetworkAllowed
+                ? (warp.warpState.localNetworkEndsInSecs > 0 ? "Ends in " + Math.ceil(warp.warpState.localNetworkEndsInSecs / 60) + " min" : "Allowed")
+                : "Reach printers, NAS and dev boxes on this LAN, if your policy permits"
+              current: warp.warpState.localNetworkAllowed
+            }
+          }
+
+          Section {
+            visible: root.panelStage === "ready" && warp.warpState.splitTunnelRoutes.length > 0
+            title: "SPLIT TUNNEL · " + (warp.warpState.splitTunnelMode === "include" ? "ONLY THESE GO THROUGH WARP" : "THESE BYPASS WARP")
+
+            Repeater {
+              model: warp.warpState.splitTunnelRoutes
+              ActionRow {
+                required property var modelData
+                required property int index
+                rowKey: "route:" + index
+                icon: "󰑪"
+                label: modelData.value
+                detail: modelData.description
+                compact: true
+                trailingIcon: "󰆏"
+              }
+            }
+          }
+
+          PanelSeparator {
+            visible: root.panelStage === "ready"
+            foreground: root.foreground
+          }
+
+          Column {
+            visible: root.panelStage === "ready"
+            width: parent.width
+            spacing: Style.space(6)
+
+            ActionRow {
+              rowKey: "change-team"
+              icon: "󰀙"
+              label: warp.warpState.zeroTrust ? "Change Zero Trust team" : "Join a Zero Trust team"
+              compact: true
+            }
+            ActionRow {
+              rowKey: "unregister"
+              icon: "󰌸"
+              label: root.confirmUnregister ? "Press again to unregister this device" : "Unregister this device"
+              compact: true
+              current: root.confirmUnregister
+            }
+          }
         }
       }
     }
   }
 
   component Hint: Text {
-    width: parent.width
+    width: parent ? parent.width : 0
     textFormat: Text.PlainText
     color: root.dim
     font.family: root.fontFamily
@@ -435,25 +548,48 @@ Panel {
     wrapMode: Text.WordWrap
   }
 
-  component InfoPair: Row {
+  component Section: Column {
+    property string title: ""
+    default property alias rows: sectionRows.data
+
+    width: parent ? parent.width : 0
+    spacing: Style.space(8)
+
+    PanelSectionHeader {
+      text: parent.title
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
+    Column {
+      id: sectionRows
+      width: parent.width
+      spacing: Style.space(4)
+    }
+  }
+
+  component InfoPair: Item {
     property string label: ""
     property string value: ""
 
-    width: parent.width
-    spacing: Style.space(8)
+    width: parent ? parent.width : 0
+    implicitHeight: Math.max(pairLabel.implicitHeight, pairValue.implicitHeight)
 
     Text {
       id: pairLabel
+      anchors.left: parent.left
       textFormat: Text.PlainText
       text: parent.label
-      color: root.foreground
-      opacity: 0.6
+      color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
-    Item { width: Math.max(0, parent.width - pairLabel.implicitWidth - pairValue.implicitWidth - parent.spacing * 2); height: 1 }
+
     Text {
       id: pairValue
+      anchors.right: parent.right
+      width: Math.min(implicitWidth, parent.width - pairLabel.implicitWidth - Style.space(12))
+      horizontalAlignment: Text.AlignRight
       textFormat: Text.PlainText
       text: parent.value
       color: root.foreground
@@ -462,4 +598,90 @@ Panel {
       elide: Text.ElideRight
     }
   }
+
+  component ActionRow: CursorSurface {
+    id: actionRow
+    property string rowKey: ""
+    property string icon: ""
+    property string label: ""
+    property string detail: ""
+    property string trailingIcon: ""
+    property bool compact: false
+
+    width: parent ? parent.width : 0
+    hasCursor: root.hasCursor(rowKey)
+    foreground: root.foreground
+    fill: root.hoverFill
+    currentFill: root.selectedFill
+    opacity: enabled ? 1.0 : 0.45
+    implicitHeight: actionContent.implicitHeight + (compact ? Style.spacing.lg : Style.spacing.rowPaddingX)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      enabled: actionRow.enabled
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.setCursor(actionRow.rowKey)
+      onClicked: root.activate(actionRow.rowKey)
+    }
+
+    RowLayout {
+      id: actionContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      spacing: Style.space(10)
+
+      Text {
+        visible: actionRow.icon !== ""
+        text: actionRow.icon
+        textFormat: Text.PlainText
+        color: actionRow.hasCursor || actionRow.current ? root.foreground : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.preferredWidth: Style.space(20)
+        horizontalAlignment: Text.AlignHCenter
+        Layout.alignment: Qt.AlignVCenter
+      }
+
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: actionRow.label
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: actionRow.compact ? Style.font.bodySmall : Style.font.body
+          elide: Text.ElideRight
+        }
+
+        Text {
+          Layout.fillWidth: true
+          visible: actionRow.detail !== ""
+          textFormat: Text.PlainText
+          text: actionRow.detail
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+      }
+
+      Text {
+        visible: actionRow.trailingIcon !== "" && actionRow.hasCursor
+        text: actionRow.trailingIcon
+        textFormat: Text.PlainText
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        Layout.alignment: Qt.AlignVCenter
+      }
+    }
+  }
+
 }

@@ -1,110 +1,56 @@
 #!/bin/bash
 # Helper for the Cloudflare WARP Omarchy plugin.
 #
-#   warp-setup state              machine-readable key=value status
-#   warp-setup install            install cloudflare-warp-bin + enable warp-svc (interactive)
-#   warp-setup start-service      enable/start warp-svc (interactive, sudo)
-#   warp-setup register [team]    register with a Zero Trust team, or free WARP when empty (interactive)
-#   warp-setup unregister         delete the current registration
+#   warp-setup state              JSON status, as the panel reads it
+#   warp-setup install            install cloudflare-warp-bin and start warp-svc (interactive, sudo)
+#   warp-setup start-service      enable and start warp-svc (interactive, sudo)
+#   warp-setup register [team]    join a Zero Trust team, or free WARP when empty
+#   warp-setup unregister         delete this device's registration
 #   warp-setup connect|disconnect
 
 set -u
 PKG="cloudflare-warp-bin"
 WARP=(warp-cli --accept-tos)
+DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-have_cli() { command -v warp-cli >/dev/null 2>&1; }
-svc_active() { systemctl is-active --quiet warp-svc; }
-registered() { "${WARP[@]}" registration show >/dev/null 2>&1; }
-
-wait_for_registration() {
-  echo
-  echo "Waiting for registration to complete (finish the login in your browser)..."
-  for _ in $(seq 1 180); do
-    if registered; then
-      echo "Registered."
-      return 0
-    fi
+cmd_start_service() {
+  echo "Starting the WARP service (warp-svc)..."
+  sudo systemctl enable --now warp-svc.service || return 1
+  for _ in {1..15}; do
+    "${WARP[@]}" status >/dev/null 2>&1 && break
     sleep 1
   done
-  echo "Timed out waiting for registration. You can retry from the WARP panel."
-  return 1
-}
 
-cmd_state() {
-  if ! have_cli; then
-    echo "installed=false"
-    return 0
-  fi
-  echo "installed=true"
-  if ! svc_active; then
-    echo "service=false"
-    return 0
-  fi
-  echo "service=true"
+  # The bar panel replaces Cloudflare's tray app, whose icon hides in the tray
+  # drawer under a fresh id every launch.
+  systemctl --user disable --now warp-taskbar.service 2>/dev/null || true
 
-  local reg
-  if reg=$("${WARP[@]}" registration show 2>/dev/null); then
-    echo "registered=true"
-    echo "account=$(sed -n 's/^Account type: *//p' <<<"$reg" | head -1)"
-    echo "organization=$(sed -n 's/^Organization: *//p' <<<"$reg" | head -1)"
-  else
-    echo "registered=false"
-  fi
-
-  local st
-  st=$("${WARP[@]}" status 2>/dev/null)
-  echo "status=$(sed -n 's/^Status update: *//p' <<<"$st" | head -1)"
-  echo "network=$(sed -n 's/^Network: *//p' <<<"$st" | head -1)"
-  echo "reason=$(sed -n 's/^Reason: *//p' <<<"$st" | head -1)"
+  echo "WARP is running. Open the WARP panel in the bar to sign in."
 }
 
 cmd_install() {
   echo "Installing Cloudflare WARP ($PKG)..."
-  if ! omarchy-pkg-aur-add "$PKG"; then
-    echo "Installation failed."
-    return 1
-  fi
+  omarchy-pkg-aur-add "$PKG" || { echo "Installation failed."; return 1; }
   cmd_start_service
-}
-
-cmd_start_service() {
-  echo "Enabling the WARP service (warp-svc)..."
-  sudo systemctl enable --now warp-svc || return 1
-  for _ in $(seq 1 15); do
-    "${WARP[@]}" status >/dev/null 2>&1 && break
-    sleep 1
-  done
-  echo "WARP service is running. Return to the WARP panel to register."
 }
 
 cmd_register() {
   local team="${1:-}"
-  team="${team// /}"
-  if registered; then
-    echo "Removing the existing registration..."
-    "${WARP[@]}" registration delete || return 1
-  fi
+  "${WARP[@]}" registration delete >/dev/null 2>&1
   if [[ -n $team ]]; then
-    echo "Registering with Cloudflare Zero Trust team: $team"
-    echo "A browser window will open for your company login."
-    echo
     "${WARP[@]}" registration new "$team"
   else
-    echo "Registering with the free Cloudflare WARP service..."
-    "${WARP[@]}" registration new
+    "${WARP[@]}" registration new && "${WARP[@]}" connect
   fi
-  wait_for_registration || return 1
-  echo "Connecting..."
-  "${WARP[@]}" connect
 }
 
 case "${1:-}" in
-  state) cmd_state ;;
+  state) exec "$DIR/state.sh" ;;
   install) cmd_install ;;
   start-service) cmd_start_service ;;
   register) shift; cmd_register "${1:-}" ;;
   unregister) "${WARP[@]}" disconnect >/dev/null 2>&1; "${WARP[@]}" registration delete ;;
   connect) "${WARP[@]}" connect ;;
   disconnect) "${WARP[@]}" disconnect ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

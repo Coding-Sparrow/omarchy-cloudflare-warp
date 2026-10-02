@@ -2,17 +2,29 @@
   "schemaVersion": 1,
   "id": "coding-sparrow.cloudflare-warp",
   "name": "Cloudflare WARP",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "Coding-Sparrow",
   "license": "MIT",
-  "description": "Install, register (Zero Trust team or free WARP) and toggle the Cloudflare WARP VPN from the Omarchy bar.",
+  "description": "Cloudflare WARP and Zero Trust in the Omarchy bar: install, team login, on/off, modes, virtual networks, local network access and split tunnel routes.",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Widget.qml" },
   "barWidget": {
     "displayName": "Cloudflare WARP",
-    "description": "Install, register and switch the Cloudflare WARP VPN on and off.",
+    "description": "Toggle Cloudflare WARP, sign in to a Zero Trust team, switch modes and virtual networks, and copy split tunnel routes.",
     "category": "Network",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": { "refreshIntervalSec": 10 },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 3600,
+        "step": 1,
+        "defaultValue": 10
+      }
+    ]
   }
 }

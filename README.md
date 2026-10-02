@@ -1,38 +1,51 @@
 # Cloudflare WARP for Omarchy
 
-An [Omarchy](https://omarchy.org) shell plugin that handles Cloudflare WARP
-entirely from the bar — no terminal commands to remember.
+An [Omarchy](https://omarchy.org) shell plugin for Cloudflare WARP and Cloudflare Zero Trust. It handles everything from the bar, from installing the client to the developer details you usually need `warp-cli` for.
 
-Click the 󰖂 icon in the bar to open the panel. It walks you through each step:
+![Cloudflare WARP panel](preview.png)
 
-1. **Install:** if `warp-cli` is missing, one click installs
-   `cloudflare-warp-bin` from the AUR and enables the `warp-svc` service. This
-   happens in a floating terminal so you can enter your sudo password.
-2. **Register:** enter your company's Cloudflare Zero Trust **team name** (the
-   part before `.cloudflareaccess.com`). A browser window opens for your
-   company login, and the device is registered when you finish. You can also
-   pick **free WARP** if you don't have a company account.
-3. **Use:** switch the VPN on and off with the toggle. The panel shows the
-   account type, team, network health and any disconnect reason. You can also
-   **change team** or **unregister**.
+Click the Cloudflare icon in the bar to open the panel:
+
+1. **Install:** if `warp-cli` is missing, one click installs `cloudflare-warp-bin` from the AUR and enables the `warp-svc` service, in a floating terminal so you can enter your sudo password. It also turns off Cloudflare's `warp-taskbar` tray app, since the panel replaces it.
+2. **Sign in:** type your company's Zero Trust **team name** (the part before `.cloudflareaccess.com`) and finish the login in your browser. Or pick **free WARP** if you don't have a company account. It connects as soon as registration completes.
+3. **Use:**
+   - Switch WARP on and off, and see the Cloudflare edge you're on, latency, tunnel protocol and traffic
+   - Switch **mode** (WARP, WARP + DoH, DNS only, tunnel only, local proxy) unless your organization locks it. In proxy mode the panel shows the local SOCKS5 address to copy.
+   - Switch Zero Trust **virtual networks** when your team has more than one, for example default and staging
+   - **Allow local network access** for a while, to reach printers, NAS and dev boxes on your LAN, if your policy permits it
+   - See the **split tunnel** hosts and ranges, so you know whether a host goes through WARP, and copy them
+   - **Change team** or **unregister** the device
 
 ## Screenshots
 
-| 1. Install | 2. Register with your company |
+| Connected | Virtual networks and split tunnel |
 |---|---|
-| ![Install Cloudflare WARP](screenshots/1-get-warp.png) | ![Register with a Zero Trust team](screenshots/2-register.png) |
-| **3. Connected** | **4. Disconnected** |
-| ![Connected](screenshots/3-connected.png) | ![Disconnected](screenshots/4-disconnected.png) |
+| ![Connected](screenshots/1-connected.png) | ![Virtual networks and split tunnel](screenshots/2-networks-and-routes.png) |
+| **Sign in to a Zero Trust team** | **Install** |
+| ![Sign in](screenshots/3-sign-in.png) | ![Install](screenshots/4-install.png) |
+
+## Mouse and keyboard
 
 | Action | Result |
 |---|---|
 | Left-click icon | Open / close the panel |
-| Middle-click icon | Toggle VPN without opening the panel |
-| `Enter` / `Space` / `T` in panel | Toggle VPN |
-| `R` in panel | Refresh status |
-| `Esc` | Close panel |
+| Right-click icon | Toggle WARP without opening the panel |
+| Middle-click icon | Refresh |
+| `j` / `k` or arrows | Move the cursor |
+| `Enter` / `Space` | Activate the selected row (toggle, mode, network, ...) |
+| `t` | Toggle WARP |
+| `c` | Copy the selected split tunnel route |
+| `p` | Copy the proxy address, in proxy mode |
+| `r` | Refresh |
+| `Esc` | Close, or cancel a team change |
 
 The bar icon is dimmed while WARP is disconnected.
+
+From a terminal or keybinding:
+
+```bash
+omarchy-shell coding-sparrow.cloudflare-warp toggleWarp   # also: connect, disconnect, status, refresh, open, close, toggle
+```
 
 ## Install
 
@@ -49,8 +62,9 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable coding-sparrow.cloudflare-warp
 ```
 
-When enabled, the icon is added to the right section of the bar. To put it
-somewhere else, drag it to any free spot, or use `omarchy bar move`.
+When enabled, the icon goes in the right section of the bar. Drag it anywhere, or use `omarchy bar move`.
+
+Updating from 1.x: after `omarchy plugin update coding-sparrow.cloudflare-warp`, run `omarchy restart shell` once so the shell loads the new files.
 
 ## Remove
 
@@ -69,25 +83,22 @@ omarchy pkg drop cloudflare-warp-bin
 
 ## Requirements
 
-- Omarchy with the Omarchy shell (Quickshell bar), 4.x
-- [`cloudflare-warp-bin`](https://aur.archlinux.org/packages/cloudflare-warp-bin)
-  (AUR, proprietary Cloudflare client providing `warp-cli` and `warp-svc`).
-  The plugin offers to install it for you through `omarchy-pkg-aur-add`, and
-  enabling `warp-svc` asks for your sudo password in a visible terminal.
-  Nothing is installed or changed without you clicking **Install**.
-- A browser, for Zero Trust team login
+- Omarchy 4.x with the Omarchy shell (Quickshell bar)
+- [`cloudflare-warp-bin`](https://aur.archlinux.org/packages/cloudflare-warp-bin) (AUR, proprietary Cloudflare client providing `warp-cli` and `warp-svc`). The plugin offers to install it through `omarchy-pkg-aur-add`, and enabling `warp-svc` asks for your sudo password in a visible terminal. Nothing is installed or changed until you click **Install** or **Start the WARP service**.
+- `jq` (included with Omarchy), for reading `warp-cli`'s JSON output
+- `wl-copy` (included with Omarchy), for the copy actions
+- A browser, for the Zero Trust team login
 
-The plugin writes no configuration outside its own entry in
-`~/.config/omarchy/shell.json`.
+The plugin writes no configuration outside its own entry in `~/.config/omarchy/shell.json`. Mode, virtual network and local network changes go through `warp-cli` and follow your organization's policy.
 
-## Notes
+## How it works
 
-- The official `warp-taskbar` tray app isn't needed; you can disable it with
-  `systemctl --user disable --now warp-taskbar`.
-- Zero Trust login uses the `com.cloudflare.warp://` deep-link handler that
-  ships with `cloudflare-warp-bin`.
-- All the CLI work lives in [`scripts/warp-setup`](scripts/warp-setup), which
-  you can also run directly (`warp-setup state`, `warp-setup register acme`, …).
+- [`scripts/state.sh`](scripts/state.sh) collects `warp-cli -j` output (status, registration, settings, virtual networks, local network override and tunnel stats) into one JSON document.
+- [`Model.js`](Model.js) turns that into the values the panel shows. It's plain JavaScript, tested with node.
+- [`Service.qml`](Service.qml) polls the state and runs the actions. [`Widget.qml`](Widget.qml) is the bar icon and panel.
+- [`scripts/warp-setup`](scripts/warp-setup) does the interactive install and service start, and works on its own too (`warp-setup state`, `warp-setup register acme`, ...).
+
+Run the tests with `tests/run.sh` (needs `jq` and `node`).
 
 ## License
 

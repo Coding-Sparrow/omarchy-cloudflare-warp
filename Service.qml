@@ -163,6 +163,8 @@ Item {
     loginUrl = ""
     actionStatus = ""
     registrationTimeout.stop()
+    // A waiting warp-cli would block the next register() until it gave up.
+    registerProcess.running = false
   }
 
   function openLoginUrl() {
@@ -235,6 +237,7 @@ Item {
       root.registering = false
       root._connectAfterRegister = false
       root.lastError = "Timed out waiting for the browser login. Try registering again."
+      registerProcess.running = false
     }
   }
 
@@ -290,7 +293,8 @@ Item {
     }
     stderr: StdioCollector { id: registerStderr; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode !== 0) {
+      // Cancel and the login timeout clear both flags before stopping warp-cli, so its exit isn't an error.
+      if (exitCode !== 0 && (root.registering || root._connectAfterRegister)) {
         root.registering = false
         root._connectAfterRegister = false
         registrationTimeout.stop()

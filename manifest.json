@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "coding-sparrow.cloudflare-warp",
   "name": "Cloudflare WARP",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": "Coding-Sparrow",
   "license": "MIT",
   "description": "Cloudflare WARP and Zero Trust in the Omarchy bar: install, team login, on/off, modes, virtual networks, local network access and split tunnel routes.",

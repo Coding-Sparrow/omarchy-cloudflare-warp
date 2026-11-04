@@ -102,6 +102,9 @@ Panel {
     }
     changingTeam = false
     warp.register(team)
+    // The team field disables itself while waiting, which would leave the keys going nowhere.
+    keyCatcher.forceActiveFocus()
+    setCursor("cancel")
   }
 
   function cancelRegister() {
@@ -367,9 +370,12 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               onActiveFocusChanged: if (activeFocus) root.setCursor("team")
-              onAccepted: root.registerTeam()
               Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Escape) {
+                // Handled here, not in onAccepted: TextInput passes Return on to keyCatcher, which would hit Cancel.
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                  root.registerTeam()
+                  event.accepted = true
+                } else if (event.key === Qt.Key_Escape) {
                   if (root.changingTeam || warp.registering) root.cancelRegister()
                   else root.close()
                   event.accepted = true

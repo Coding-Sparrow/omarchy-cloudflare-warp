@@ -116,6 +116,8 @@ const serviceSource = fs.readFileSync(root + '/Service.qml', 'utf8')
 assert(/function disconnect\(\) \{[^}]*warpState\.switchLocked/.test(serviceSource), 'a locked switch blocks disconnect from every entry point')
 assert(/function unregister\(\) \{\s*if \(!warpState\.canLeave\) return/.test(serviceSource), 'unregister respects allowed_to_leave')
 assert(/registered && !warpState\.canLeave/.test(serviceSource), 'changing team respects allowed_to_leave')
+assert(/function cancelRegistration\(\) \{[^}]*registerProcess\.running = false/.test(serviceSource), 'cancel stops the waiting warp-cli so sign-in can start again')
+assert(!/onAccepted: root\.registerTeam/.test(panelSource) && /Key_Return[^}]*registerTeam\(\)\s*event\.accepted = true/.test(panelSource), 'Return in the team field is consumed, so it cannot also press Cancel')
 assert(/function toggleWarp\(\): string \{ warp\.toggle\(\); return "ok" \}/.test(panelSource), 'warp exposes the connection toggle over IPC')
 
 assertEqual(warp.cleanTeamName(' https://Acme-Corp.cloudflareaccess.com/warp '), 'acme-corp', 'team names drop the access domain and URL noise')

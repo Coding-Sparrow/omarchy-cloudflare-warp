@@ -9,12 +9,12 @@ Click the Cloudflare icon in the bar to open the panel:
 1. **Install:** if `warp-cli` is missing, one click installs `cloudflare-warp-bin` from the AUR and enables the `warp-svc` service, in a floating terminal so you can enter your sudo password. It also turns off Cloudflare's `warp-taskbar` tray app, since the panel replaces it.
 2. **Sign in:** type your company's Zero Trust **team name** (the part before `.cloudflareaccess.com`) and finish the login in your browser. Or pick **free WARP** if you don't have a company account. It connects as soon as registration completes.
 3. **Use:**
-   - Switch WARP on and off, and see the Cloudflare edge you're on, latency, tunnel protocol and traffic
+   - Switch WARP on and off (unless your organization locks it on), and see the Cloudflare edge you're on, latency, tunnel protocol and traffic
    - Switch **mode** (WARP, WARP + DoH, DNS only, tunnel only, local proxy) unless your organization locks it. In proxy mode the panel shows the local SOCKS5 address to copy.
    - Switch Zero Trust **virtual networks** when your team has more than one, for example default and staging
    - **Allow local network access** for a while, to reach printers, NAS and dev boxes on your LAN, if your policy permits it
    - See the **split tunnel** hosts and ranges, so you know whether a host goes through WARP, and copy them
-   - **Change team** or **unregister** the device
+   - **Change team** or **unregister** the device, if your organization lets devices leave
 
 ## Screenshots
 
@@ -90,6 +90,16 @@ omarchy pkg drop cloudflare-warp-bin
 - A browser, for the Zero Trust team login
 
 The plugin writes no configuration outside its own entry in `~/.config/omarchy/shell.json`. Mode, virtual network and local network changes go through `warp-cli` and follow your organization's policy.
+
+## Managed devices and support
+
+Cloudflare doesn't list Arch Linux or Omarchy among its [supported Linux distributions](https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/download/). `cloudflare-warp-bin` is community packaging of Cloudflare's Linux client, and this plugin is a front end for `warp-cli`. Neither makes Arch a platform Cloudflare supports.
+
+On a work machine:
+
+- The plugin installs nothing and starts no service until you click **Install** or **Start the WARP service**, so IT can install, enroll and update the client its own way. **Install** uses `omarchy-pkg-aur-add`, which doesn't stop to show you the AUR build script. To read it first, install `cloudflare-warp-bin` yourself. If your IT team handles elevation, through Admin By Request for example, those buttons need the same approval as any other `sudo`.
+- Your organization's device profile is the authority, and `warp-svc` enforces it. The panel follows it too: a locked WARP switch can't be turned off from the panel, the right-click toggle or `omarchy-shell`. A locked mode hides the mode list. If users aren't allowed to leave the organization, **Change team** and **Unregister** are hidden.
+- The plugin doesn't check device posture (such as a SentinelOne integration), DNS, split tunnel behavior, or what happens across reboots and client updates. It only shows what `warp-cli` reports. Testing those for your deployment is up to your IT team.
 
 ## How it works
 

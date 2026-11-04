@@ -37,7 +37,7 @@ case "$args" in
     fi
     ;;
   "--accept-tos -j settings")
-    echo '{"settings":{"always_on":true,"switch_locked":false,"operation_mode":"warp","allow_mode_switch":true,"split_tunnel_mode":"exclude","split_tunnel_hosts":[{"value":"*.local","description":""}],"split_tunnel_ips":[{"value":"10.0.0.0/8","description":"office"}],"fallback_domains":[{"domain":"lan"}],"speed_test_settings":{}},"sources":{}}'
+    echo '{"settings":{"always_on":true,"switch_locked":false,"allowed_to_leave":true,"operation_mode":"warp","allow_mode_switch":true,"split_tunnel_mode":"exclude","split_tunnel_hosts":[{"value":"*.local","description":""}],"split_tunnel_ips":[{"value":"10.0.0.0/8","description":"office"}],"fallback_domains":[{"domain":"lan"}],"speed_test_settings":{}},"sources":{}}'
     ;;
   "--accept-tos -j vnet")
     echo '{"active_vnet_id":"b","virtual_networks":[{"id":"a","name":"default","description":"","default":true},{"id":"b","name":"staging","description":"Staging VPC","default":false}]}'
@@ -86,6 +86,7 @@ jq -e '
   .status.status == "Connected" and
   .registration.account.organization == "acme" and
   .settings.settings.operation_mode == "warp" and
+  .settings.settings.allowed_to_leave == true and
   (.settings.settings | has("fallback_domains") | not) and
   (.settings.settings | has("speed_test_settings") | not) and
   .vnet.active_vnet_id == "b" and
@@ -110,11 +111,16 @@ function assertEqual(actual, expected, description) { assert(actual === expected
 function assertDeepEqual(actual, expected, description) { assert(util.isDeepStrictEqual(actual, expected), description, `expected ${util.inspect(expected)}, got ${util.inspect(actual)}`) }
 const warp = require(root + '/Model.js')
 const panelSource = fs.readFileSync(root + '/Widget.qml', 'utf8')
+const serviceSource = fs.readFileSync(root + '/Service.qml', 'utf8')
 
+assert(/function disconnect\(\) \{[^}]*warpState\.switchLocked/.test(serviceSource), 'a locked switch blocks disconnect from every entry point')
+assert(/function unregister\(\) \{\s*if \(!warpState\.canLeave\) return/.test(serviceSource), 'unregister respects allowed_to_leave')
+assert(/registered && !warpState\.canLeave/.test(serviceSource), 'changing team respects allowed_to_leave')
 assert(/function toggleWarp\(\): string \{ warp\.toggle\(\); return "ok" \}/.test(panelSource), 'warp exposes the connection toggle over IPC')
 
 assertEqual(warp.cleanTeamName(' https://Acme-Corp.cloudflareaccess.com/warp '), 'acme-corp', 'team names drop the access domain and URL noise')
 assertEqual(warp.cleanTeamName('acme corp!'), 'acmecorp', 'team names keep only valid characters')
+assertEqual(warp.cleanTeamName('--help'), 'help', 'team names cannot start with an option dash')
 assertEqual(warp.humanize('NetworkHealthy'), 'Network healthy', 'reasons are humanized')
 assertEqual(warp.humanize('Manual'), 'Manual', 'single-word reasons stay readable')
 assertEqual(warp.modeLabel('warp+doh'), 'WARP + DoH', 'known modes get their label')
@@ -172,6 +178,17 @@ assert(readyKeys.includes('mode:warp+doh') && readyKeys.includes('vnet:b') && re
 assertEqual(readyKeys[readyKeys.length - 1], 'unregister', 'unregister is the last stop')
 assert(!warp.navKeys('ready', locked, {}).some(key => key.startsWith('mode:')), 'locked modes are not navigable')
 assert(!warp.navKeys('ready', locked, {}).includes('local-network'), 'local network access is a Zero Trust feature')
+assert(connected.canLeave && locked.canLeave, 'users may leave unless the profile says otherwise')
+
+const pinned = warp.parseState(JSON.stringify({
+  installed: true,
+  service: true,
+  status: { status: 'Connected' },
+  registration: { account: { type: 'team', organization: 'acme' } },
+  settings: { settings: { switch_locked: true, allowed_to_leave: false } }
+}))
+assert(pinned.switchLocked && !pinned.canLeave, 'device profiles can lock the switch and the registration')
+assert(!warp.navKeys('ready', pinned, {}).some(key => key === 'change-team' || key === 'unregister'), 'change team and unregister are hidden when users may not leave')
 
 assertEqual(warp.moveKey(['a', 'b', 'c'], 'b', 1), 'c', 'cursor moves down')
 assertEqual(warp.moveKey(['a', 'b', 'c'], 'c', 1), 'c', 'cursor stops at the end')

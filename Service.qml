@@ -101,7 +101,8 @@ Item {
   }
 
   function disconnect() {
-    if (stage !== "ready" || actionProcess.running) return
+    // Right-click and IPC reach here too, not just the panel switch.
+    if (stage !== "ready" || warpState.switchLocked || actionProcess.running) return
     _desired = 0
     if (!warp(["disconnect"])) _desired = -1
     settleTimer.restart()
@@ -143,7 +144,8 @@ Item {
   function startService() { runInTerminal("start-service") }
 
   function register(team) {
-    if (registerProcess.running) return
+    // Registering replaces the current registration, which counts as leaving.
+    if (registerProcess.running || (warpState.registered && !warpState.canLeave)) return
     var name = Model.cleanTeamName(team)
     lastError = ""
     loginUrl = ""
@@ -168,6 +170,7 @@ Item {
   }
 
   function unregister() {
+    if (!warpState.canLeave) return
     runAction(["bash", "-c", "warp-cli --accept-tos disconnect >/dev/null 2>&1; exec warp-cli --accept-tos registration delete"], "Removing this device's registration…")
   }
 

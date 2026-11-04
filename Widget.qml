@@ -511,12 +511,12 @@ Panel {
           }
 
           PanelSeparator {
-            visible: root.panelStage === "ready"
+            visible: root.panelStage === "ready" && warp.warpState.canLeave
             foreground: root.foreground
           }
 
           Column {
-            visible: root.panelStage === "ready"
+            visible: root.panelStage === "ready" && warp.warpState.canLeave
             width: parent.width
             spacing: Style.space(6)
 

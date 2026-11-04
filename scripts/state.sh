@@ -50,7 +50,7 @@ jq -cn \
     registration: $registration,
     settings: (if $settings == null then null else {
       settings: (($settings.settings // {}) | {
-        always_on, switch_locked, operation_mode, allow_mode_switch, organization,
+        always_on, switch_locked, allowed_to_leave, operation_mode, allow_mode_switch, organization,
         proxy_port, warp_tunnel_protocol, split_tunnel_mode, split_tunnel_hosts, split_tunnel_ips
       })
     } end),

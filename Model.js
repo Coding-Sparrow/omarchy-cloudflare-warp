@@ -36,6 +36,8 @@ function cleanTeamName(value) {
     .replace(/^https?:\/\//, "")
     .replace(/\.cloudflareaccess\.com.*$/, "")
     .replace(/[^a-z0-9-]/g, "")
+    // A leading "-" would reach warp-cli as an option.
+    .replace(/^-+/, "")
 }
 
 function modeLabel(mode) {
@@ -83,6 +85,7 @@ function emptyState() {
     modeLocked: false,
     switchLocked: false,
     alwaysOn: false,
+    canLeave: true,
     proxyPort: DEFAULT_PROXY_PORT,
     protocol: "",
     splitTunnelMode: "",
@@ -138,6 +141,9 @@ function parseState(raw) {
   state.modeLocked = settings.allow_mode_switch === false
   state.switchLocked = settings.switch_locked === true
   state.alwaysOn = settings.always_on === true
+  // Device profiles can stop users leaving the organization. Unreadable settings keep the
+  // actions visible, since warp-svc enforces the policy anyway.
+  state.canLeave = settings.allowed_to_leave !== false
   var port = parseInt(str(settings.proxy_port), 10)
   if (isFinite(port) && port > 0) state.proxyPort = port
   state.protocol = str(settings.warp_tunnel_protocol)
@@ -230,7 +236,7 @@ function navKeys(panelStage, state, flags) {
   if (state.vnets.length > 1) for (var v = 0; v < state.vnets.length; v++) keys.push("vnet:" + state.vnets[v].id)
   if (state.zeroTrust) keys.push("local-network")
   for (var r = 0; r < state.splitTunnelRoutes.length; r++) keys.push("route:" + r)
-  keys.push("change-team", "unregister")
+  if (state.canLeave) keys.push("change-team", "unregister")
   return keys
 }
 

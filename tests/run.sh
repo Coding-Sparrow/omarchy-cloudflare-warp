@@ -125,6 +125,7 @@ assertEqual(warp.cleanTeamName('acme corp!'), 'acmecorp', 'team names keep only 
 assertEqual(warp.cleanTeamName('--help'), 'help', 'team names cannot start with an option dash')
 assertEqual(warp.humanize('NetworkHealthy'), 'Network healthy', 'reasons are humanized')
 assertEqual(warp.humanize('Manual'), 'Manual', 'single-word reasons stay readable')
+assertEqual(warp.humanize({ SettingsChanged: { current: {}, previous: {} } }), 'Settings changed', 'object reasons use their key')
 assertEqual(warp.modeLabel('warp+doh'), 'WARP + DoH', 'known modes get their label')
 assertEqual(warp.modeLabel('posture_only'), 'Posture only', 'unknown modes fall back to a humanized id')
 assertEqual(warp.formatBytes(0), '0 B', 'zero bytes')

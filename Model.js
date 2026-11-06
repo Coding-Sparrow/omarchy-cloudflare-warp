@@ -24,6 +24,8 @@ function usable(value) {
 
 // "NetworkHealthy" -> "Network healthy", "SettingsChanged" -> "Settings changed"
 function humanize(value) {
+  // A status reason can arrive as an object keyed by its name: { SettingsChanged: { current, previous } }.
+  if (value && typeof value === "object") value = Object.keys(value)[0]
   var text = str(value).trim()
   if (text === "") return ""
   if (/\s/.test(text)) return text

@@ -360,31 +360,89 @@ Panel {
 
             Hint { text: "Your organization's team name: the part before .cloudflareaccess.com. Its login page opens in your browser." }
 
-            TextField {
+            // Keys build the text directly, with no TextField/TextInput: a native
+            // text input reads the whole clipboard on every clipboard change.
+            Item {
               id: teamField
+              property string text: ""
+              // startChangingTeam() prefills the current team; the first key replaces it.
+              property bool selected: false
+              readonly property bool hot: root.hasCursor("team") || teamMouse.containsMouse
+              readonly property var borderSpec: Border.controlSpec(activeFocus ? "focus" : (hot ? "hover-cursor" : "normal"), root.foreground, Color.accent)
+              readonly property real padX: Style.spacing.controlPaddingX + Border.left(borderSpec)
+
+              function selectAll() { selected = text !== "" }
+
               width: parent.width
-              placeholderText: "e.g. acme"
+              height: teamText.implicitHeight + 2 * Style.spacing.inputPaddingY + Border.top(borderSpec) + Border.bottom(borderSpec)
               enabled: !warp.registering
-              hasCursor: root.hasCursor("team")
-              foreground: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              onActiveFocusChanged: if (activeFocus) root.setCursor("team")
+              clip: true
+              onActiveFocusChanged: if (activeFocus) root.setCursor("team"); else selected = false
+
+              BorderSurface {
+                anchors.fill: parent
+                color: Style.controlFill(teamField.activeFocus, teamField.hot, root.foreground, Color.accent)
+                borderSpec: teamField.borderSpec
+                radius: Style.cornerRadius
+              }
+              Rectangle {
+                visible: teamField.selected
+                x: teamText.x
+                anchors.verticalCenter: parent.verticalCenter
+                width: teamText.contentWidth
+                height: teamText.contentHeight
+                color: Style.selectionFillFor(root.foreground, Color.accent)
+              }
+              Text {
+                id: teamText
+                x: teamField.padX
+                width: parent.width - 2 * teamField.padX
+                anchors.verticalCenter: parent.verticalCenter
+                text: teamField.text !== "" ? teamField.text : "e.g. acme"
+                color: teamField.text !== "" ? root.foreground : Qt.darker(root.foreground, 1.6)
+                textFormat: Text.PlainText
+                elide: Text.ElideLeft
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+              Rectangle {
+                visible: teamField.activeFocus && !teamField.selected
+                x: teamText.x + (teamField.text !== "" ? teamText.contentWidth : 0)
+                anchors.verticalCenter: parent.verticalCenter
+                width: 1
+                height: teamText.contentHeight
+                color: root.foreground
+              }
+              MouseArea {
+                id: teamMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.IBeamCursor
+                onClicked: teamField.forceActiveFocus()
+              }
+
               Keys.onPressed: function(event) {
-                // Handled here, not in onAccepted: TextInput passes Return on to keyCatcher, which would hit Cancel.
+                // Every key but Up is consumed, so keyCatcher can't also act on it (Return would hit Cancel).
+                event.accepted = true
                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                   root.registerTeam()
-                  event.accepted = true
                 } else if (event.key === Qt.Key_Escape) {
                   if (root.changingTeam || warp.registering) root.cancelRegister()
                   else root.close()
-                  event.accepted = true
+                } else if (event.key === Qt.Key_Up) {
+                  event.accepted = false
                 } else if (event.key === Qt.Key_Down) {
                   root.moveCursor(1)
-                  event.accepted = true
                 } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                   root.switchPanel(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
-                  event.accepted = true
+                } else if (event.key === Qt.Key_Backspace) {
+                  teamField.text = teamField.selected ? "" : teamField.text.slice(0, -1)
+                  teamField.selected = false
+                } else if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+                           && /^[\x21-\x7e]$/.test(event.text)) {
+                  // Printable ASCII only, capped: enough for a team name or its full access URL.
+                  teamField.text = ((teamField.selected ? "" : teamField.text) + event.text).slice(0, 128)
+                  teamField.selected = false
                 }
               }
             }

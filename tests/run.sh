@@ -117,7 +117,10 @@ assert(/function disconnect\(\) \{[^}]*warpState\.switchLocked/.test(serviceSour
 assert(/function unregister\(\) \{\s*if \(!warpState\.canLeave\) return/.test(serviceSource), 'unregister respects allowed_to_leave')
 assert(/registered && !warpState\.canLeave/.test(serviceSource), 'changing team respects allowed_to_leave')
 assert(/function cancelRegistration\(\) \{[^}]*registerProcess\.running = false/.test(serviceSource), 'cancel stops the waiting warp-cli so sign-in can start again')
-assert(!/onAccepted: root\.registerTeam/.test(panelSource) && /Key_Return[^}]*registerTeam\(\)\s*event\.accepted = true/.test(panelSource), 'Return in the team field is consumed, so it cannot also press Cancel')
+assert(/id: teamField[\s\S]*?Keys\.onPressed: function\(event\) \{[^}]*event\.accepted = true\s*if \(event\.key === Qt\.Key_Return[^}]*registerTeam\(\)/.test(panelSource), 'Return in the team field is consumed, so it cannot also press Cancel')
+for (const file of fs.readdirSync(root).filter((name) => name.endsWith('.qml'))) {
+  assert(!/\b(TextField|TextInput|TextEdit|FilterInput)\s*\{/.test(fs.readFileSync(root + '/' + file, 'utf8')), `${file} has no native text input, so nothing reads the clipboard when it changes`)
+}
 assert(/function toggleWarp\(\): string \{ warp\.toggle\(\); return "ok" \}/.test(panelSource), 'warp exposes the connection toggle over IPC')
 
 assertEqual(warp.cleanTeamName(' https://Acme-Corp.cloudflareaccess.com/warp '), 'acme-corp', 'team names drop the access domain and URL noise')
